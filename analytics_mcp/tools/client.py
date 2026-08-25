@@ -18,9 +18,11 @@ import contextlib
 import subprocess
 import threading
 from importlib import metadata
+from typing import Optional
 from unittest.mock import patch
 
 import google.auth
+from google.oauth2.credentials import Credentials
 from google.analytics import (
     admin_v1beta,
     data_v1beta,
@@ -75,7 +77,16 @@ def prevent_stdio_inheritance():
         yield
 
 
-def _get_credentials():
+def _get_credentials(user_token: Optional[str] = None):
+    """Returns credentials for Google Analytics API.
+    
+    If `user_token` is provided, constructs a Credentials instance using the user's
+    OAuth Access Token so calls execute with the user's individual GA permissions.
+    Otherwise, falls back to Application Default Credentials.
+    """
+    if user_token:
+        return Credentials(token=user_token, scopes=[_READ_ONLY_ANALYTICS_SCOPE])
+
     global _CREDENTIALS
     # Expected to be called under _client_lock
     if _CREDENTIALS is None:
@@ -86,35 +97,35 @@ def _get_credentials():
     return _CREDENTIALS
 
 
-def create_admin_api_client() -> admin_v1beta.AnalyticsAdminServiceClient:
+def create_admin_api_client(user_token: Optional[str] = None) -> admin_v1beta.AnalyticsAdminServiceClient:
     """Returns the Google Analytics Admin API client."""
     with _client_lock:
         return admin_v1beta.AnalyticsAdminServiceClient(
-            client_info=_CLIENT_INFO, credentials=_get_credentials()
+            client_info=_CLIENT_INFO, credentials=_get_credentials(user_token)
         )
 
 
-def create_data_api_client() -> data_v1beta.BetaAnalyticsDataClient:
+def create_data_api_client(user_token: Optional[str] = None) -> data_v1beta.BetaAnalyticsDataClient:
     """Returns the Google Analytics Data API client."""
     with _client_lock:
         return data_v1beta.BetaAnalyticsDataClient(
-            client_info=_CLIENT_INFO, credentials=_get_credentials()
+            client_info=_CLIENT_INFO, credentials=_get_credentials(user_token)
         )
 
 
-def create_admin_alpha_api_client() -> (
+def create_admin_alpha_api_client(user_token: Optional[str] = None) -> (
     admin_v1alpha.AnalyticsAdminServiceClient
 ):
     """Returns the Google Analytics Admin API (alpha) client."""
     with _client_lock:
         return admin_v1alpha.AnalyticsAdminServiceClient(
-            client_info=_CLIENT_INFO, credentials=_get_credentials()
+            client_info=_CLIENT_INFO, credentials=_get_credentials(user_token)
         )
 
 
-def create_data_api_alpha_client() -> data_v1alpha.AlphaAnalyticsDataClient:
+def create_data_api_alpha_client(user_token: Optional[str] = None) -> data_v1alpha.AlphaAnalyticsDataClient:
     """Returns the Google Analytics Data API (Alpha) client."""
     with _client_lock:
         return data_v1alpha.AlphaAnalyticsDataClient(
-            client_info=_CLIENT_INFO, credentials=_get_credentials()
+            client_info=_CLIENT_INFO, credentials=_get_credentials(user_token)
         )

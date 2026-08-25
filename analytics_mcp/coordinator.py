@@ -21,7 +21,6 @@ server.
 # MCP Server Imports
 import json
 import sys
-from json import tool
 from mcp import types as mcp_types  # Use alias to avoid conflict
 from mcp.server.lowlevel import Server
 
@@ -29,6 +28,7 @@ from mcp.server.lowlevel import Server
 from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.mcp_tool.conversion_utils import adk_to_mcp_tool_type
 
+# GA Admin & Reporting Tools
 from analytics_mcp.tools.admin.info import (
     get_account_summaries,
     list_google_ads_links,
@@ -55,6 +55,19 @@ from analytics_mcp.tools.reporting.conversions import (
     _run_conversions_report_description,
 )
 
+# Mirror Media CMS Tools
+from analytics_mcp.tools.mirrormedia_cms.tools import (
+    mm_list_recent_posts,
+    mm_get_post,
+    mm_search_posts,
+    mm_filter_posts,
+    mm_search_tags,
+    mm_convert_to_draftjs,
+    mm_create_post,
+    mm_update_post,
+    mm_publish_post,
+)
+
 run_report_with_description = FunctionTool(run_report)
 run_report_with_description.description = _run_report_description()
 run_realtime_report_with_description = FunctionTool(run_realtime_report)
@@ -70,8 +83,9 @@ run_conversions_report_with_description.description = (
     _run_conversions_report_description()
 )
 
-# Instantiate the ADK tools
+# Instantiate the ADK tools (GA4 Tools + Mirror Media CMS Tools)
 tools = [
+    # Google Analytics Tools
     FunctionTool(get_account_summaries),
     FunctionTool(list_google_ads_links),
     FunctionTool(get_property_details),
@@ -81,23 +95,29 @@ tools = [
     run_realtime_report_with_description,
     run_funnel_report_with_description,
     run_conversions_report_with_description,
+    # Mirror Media CMS Tools
+    FunctionTool(mm_list_recent_posts),
+    FunctionTool(mm_get_post),
+    FunctionTool(mm_search_posts),
+    FunctionTool(mm_filter_posts),
+    FunctionTool(mm_search_tags),
+    FunctionTool(mm_convert_to_draftjs),
+    FunctionTool(mm_create_post),
+    FunctionTool(mm_update_post),
+    FunctionTool(mm_publish_post),
 ]
 
 tool_map = {t.name: t for t in tools}
 
 app = Server(
-    name="Google Analytics MCP Server",
+    name="Google Analytics & Mirror Media CMS Unified MCP Server",
 )
 
 mcp_tools = [adk_to_mcp_tool_type(tool) for tool in tools]
 
 
 def sanitize_mcp_schema_properties(node: dict) -> None:
-    """Ensure additionalProperties is a boolean value to satisfy certain MCP clients.
-
-    This addresses issues with clients like Claude Desktop that fail when
-    additionalProperties is a schema object instead of a boolean.
-    """
+    """Ensure additionalProperties is a boolean value to satisfy certain MCP clients."""
     if not isinstance(node, dict):
         return
 
@@ -117,9 +137,6 @@ def sanitize_mcp_schema_properties(node: dict) -> None:
                     sanitize_mcp_schema_properties(element)
 
 
-# Update the inputSchema for tools that do not have parameters.
-# TODO: This is a bug in the ADK and can be removed once it is fixed.
-# https://github.com/google/adk-python/issues/948
 for tool in mcp_tools:
     # Check if inputSchema is empty
     if tool.inputSchema == {}:
