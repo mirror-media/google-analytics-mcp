@@ -33,7 +33,7 @@ class CMSProfileConfig:
 
 
 def load_all_profiles(profiles_dir: Optional[str] = None) -> List[CMSProfileConfig]:
-    """Scans and loads all YAML configuration profiles from the profiles directory."""
+    """Scans and loads YAML configuration profiles from the profiles directory."""
     if not profiles_dir:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         profiles_dir = os.path.join(base_dir, "profiles")
@@ -42,8 +42,18 @@ def load_all_profiles(profiles_dir: Optional[str] = None) -> List[CMSProfileConf
     if not os.path.exists(profiles_dir):
         return profiles
 
+    # Check if specific profiles are requested via environment variable (e.g. CMS_PROFILES=mirrormedia)
+    allowed_profiles = None
+    env_profiles = os.getenv("CMS_PROFILES")
+    if env_profiles and env_profiles.strip() and env_profiles.strip().lower() != "all":
+        allowed_profiles = {p.strip().lower() for p in env_profiles.split(",") if p.strip()}
+
     for filename in sorted(os.listdir(profiles_dir)):
         if filename.endswith(".yaml") or filename.endswith(".yml"):
+            profile_name = os.path.splitext(filename)[0].lower()
+            if allowed_profiles and profile_name not in allowed_profiles:
+                continue
+
             full_path = os.path.join(profiles_dir, filename)
             try:
                 profile = CMSProfileConfig.load_from_yaml(full_path)
