@@ -86,7 +86,8 @@ class KeystoneCMSBaseClient:
             pass
 
     def execute(self, query: str, variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Executes a GraphQL query/mutation against the Keystone CMS backend."""
+        """Executes a GraphQL query/mutation against the Keystone CMS backend with Audit Logging."""
+        from analytics_mcp.audit import log_mcp_audit_event
         self._ensure_authenticated()
 
         payload = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
@@ -117,7 +118,34 @@ class KeystoneCMSBaseClient:
                 result = json.loads(response.read().decode("utf-8"))
                 if "errors" in result and result["errors"]:
                     error_msg = "; ".join(e.get("message", "Unknown GraphQL error") for e in result["errors"])
+                    log_mcp_audit_event(
+                        target_service="KeystoneCMS",
+                        tool_name="graphql_execute",
+                        cms_profile=self.config.cms_name,
+                        graphql_query=query,
+                        graphql_variables=variables,
+                        status="ERROR",
+                        error_message=error_msg
+                    )
                     raise RuntimeError(f"CMS GraphQL Error: {error_msg}")
+
+                log_mcp_audit_event(
+                    target_service="KeystoneCMS",
+                    tool_name="graphql_execute",
+                    cms_profile=self.config.cms_name,
+                    graphql_query=query,
+                    graphql_variables=variables,
+                    status="SUCCESS"
+                )
                 return result.get("data", {})
         except Exception as e:
+            log_mcp_audit_event(
+                target_service="KeystoneCMS",
+                tool_name="graphql_execute",
+                cms_profile=self.config.cms_name,
+                graphql_query=query,
+                graphql_variables=variables,
+                status="ERROR",
+                error_message=str(e)
+            )
             raise RuntimeError(f"Failed to communicate with {self.config.cms_name}: {str(e)}")

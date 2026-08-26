@@ -43,6 +43,10 @@ if HAS_HTTP_DEPS:
     sse = SseServerTransport("/messages")
 
     async def handle_sse(request):
+        email = request.headers.get("x-user-email") or request.headers.get("X-User-Email") or "anonymous"
+        from analytics_mcp.audit import current_user_email
+        current_user_email.set(email)
+
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
@@ -60,6 +64,10 @@ if HAS_HTTP_DEPS:
             )
 
     async def handle_messages(request):
+        email = request.headers.get("x-user-email") or request.headers.get("X-User-Email") or "anonymous"
+        from analytics_mcp.audit import current_user_email
+        current_user_email.set(email)
+
         await sse.handle_post_message(request.scope, request.receive, request._send)
 
     starlette_app = Starlette(

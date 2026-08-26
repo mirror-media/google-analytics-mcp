@@ -174,6 +174,9 @@ async def list_tools() -> list[mcp_types.Tool]:
 
 @app.call_tool()
 async def call_mcp_tool(name: str, arguments: dict) -> list[mcp_types.Content]:
+    from analytics_mcp.audit import log_mcp_audit_event
+    target_service = "GA4" if not (name.startswith("mm_") or name.startswith("daily_") or name.startswith("readr_")) else "KeystoneCMS"
+
     if name in tool_map:
         tool = tool_map[name]
         try:
@@ -181,12 +184,26 @@ async def call_mcp_tool(name: str, arguments: dict) -> list[mcp_types.Content]:
                 args=arguments,
                 tool_context=None,
             )
+            # Log tool call audit event
+            log_mcp_audit_event(
+                target_service=target_service,
+                tool_name=name,
+                arguments=arguments,
+                status="SUCCESS"
+            )
             # Serialize the ADK tool response to JSON for MCP response
             response_text = json.dumps(adk_tool_response, indent=2)
             # MCP expects a list of mcp_types.Content parts
             return [mcp_types.TextContent(type="text", text=response_text)]
 
         except Exception as e:
+            log_mcp_audit_event(
+                target_service=target_service,
+                tool_name=name,
+                arguments=arguments,
+                status="ERROR",
+                error_message=str(e)
+            )
             print(
                 f"MCP Server: Error executing ADK tool '{name}': {e}",
                 file=sys.stderr,
