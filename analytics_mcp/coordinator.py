@@ -68,6 +68,9 @@ from analytics_mcp.tools.mirrormedia_cms.tools import (
     mm_publish_post,
 )
 
+# Dynamic Keystone CMS Tools (Loaded from profiles/)
+from analytics_mcp.tools.keystone_cms.generator import get_all_cms_tools
+
 run_report_with_description = FunctionTool(run_report)
 run_report_with_description.description = _run_report_description()
 run_realtime_report_with_description = FunctionTool(run_realtime_report)
@@ -83,7 +86,7 @@ run_conversions_report_with_description.description = (
     _run_conversions_report_description()
 )
 
-# Instantiate the ADK tools (GA4 Tools + Mirror Media CMS Tools)
+# Instantiate the ADK tools (GA4 Tools + Keystone CMS Tools)
 tools = [
     # Google Analytics Tools
     FunctionTool(get_account_summaries),
@@ -95,17 +98,12 @@ tools = [
     run_realtime_report_with_description,
     run_funnel_report_with_description,
     run_conversions_report_with_description,
-    # Mirror Media CMS Tools
-    FunctionTool(mm_list_recent_posts),
-    FunctionTool(mm_get_post),
-    FunctionTool(mm_search_posts),
-    FunctionTool(mm_filter_posts),
-    FunctionTool(mm_search_tags),
-    FunctionTool(mm_convert_to_draftjs),
-    FunctionTool(mm_create_post),
-    FunctionTool(mm_update_post),
-    FunctionTool(mm_publish_post),
 ]
+
+# Add dynamically generated Keystone CMS tools from profiles (e.g. mm_*, readr_*, etc.)
+dynamic_cms_tools = get_all_cms_tools()
+for cms_tool in dynamic_cms_tools:
+    tools.append(FunctionTool(cms_tool))
 
 tool_map = {t.name: t for t in tools}
 

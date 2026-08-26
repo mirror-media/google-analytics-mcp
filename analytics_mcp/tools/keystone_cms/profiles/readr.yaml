@@ -1,0 +1,33 @@
+# Keystone CMS Profile for Readr
+cms_name: "Readr CMS"
+tool_prefix: "readr_"
+graphql_endpoint: "https://readr-cms.readr.tw/api/graphql"
+
+# Environment Variable Overrides
+env_vars:
+  endpoint_env: "READR_GRAPHQL_ENDPOINT"
+  service_email_env: "READR_SERVICE_EMAIL"
+  service_password_env: "READR_SERVICE_PASSWORD"
+  session_cookie_env: "READR_SESSION_COOKIE"
+
+# Schema Mapping
+schema:
+  post_list: "posts"
+  tag_list: "tags"
+  post_count_field: "postsCount"
+  tag_count_field: "tagsCount"
+  
+  fields:
+    id: "id"
+    slug: "slug"
+    title: "title"
+    state: "state"
+    published_date: "publishTime"
+    summary: "summary"
+    content: "content"
+    
+  relations:
+    categories: "categories { id name }"
+    authors: "authors { id name }"
+    hero_image: "heroImage { id name }"
+    tags: "tags { id name }"

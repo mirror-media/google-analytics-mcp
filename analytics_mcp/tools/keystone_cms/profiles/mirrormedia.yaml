@@ -1,0 +1,61 @@
+# Keystone CMS Profile for Mirror Media
+cms_name: "Mirror Media CMS"
+tool_prefix: "mm_"
+graphql_endpoint: "https://cms.mirrormedia.mg/api/graphql"
+
+# Environment Variable Overrides
+env_vars:
+  endpoint_env: "MIRRORMEDIA_GRAPHQL_ENDPOINT"
+  service_email_env: "CMS_SERVICE_EMAIL"
+  service_password_env: "CMS_SERVICE_PASSWORD"
+  session_cookie_env: "CMS_SESSION_COOKIE"
+  session_secret_env: "CMS_SESSION_SECRET"
+
+# Schema Mapping
+schema:
+  post_list: "posts"
+  tag_list: "tags"
+  post_count_field: "postsCount"
+  tag_count_field: "tagsCount"
+  
+  fields:
+    id: "id"
+    slug: "slug"
+    title: "title"
+    subtitle: "subtitle"
+    state: "state"
+    published_date: "publishedDate"
+    published_date_string: "publishedDateString"
+    hero_caption: "heroCaption"
+    style: "style"
+    is_member: "isMember"
+    member_feed: "memberFeed"
+    is_featured: "isFeatured"
+    is_advertised: "isAdvertised"
+    hidden_advertised: "hiddenAdvertised"
+    is_adult: "isAdult"
+    redirect: "redirect"
+    ad_trace: "adTrace"
+    css: "css"
+    og_title: "og_title"
+    og_description: "og_description"
+    extend_byline: "extend_byline"
+    brief: "brief"
+    content: "content"
+    
+  relations:
+    sections: "sections { id name }"
+    categories: "categories { id name }"
+    writers: "writers { id name }"
+    photographers: "photographers { id name }"
+    camera_man: "camera_man { id name }"
+    designers: "designers { id name }"
+    engineers: "engineers { id name }"
+    vocals: "vocals { id name }"
+    hero_video: "heroVideo { id name }"
+    hero_image: "heroImage { id name }"
+    og_image: "og_image { id name }"
+    topics: "topics { id name }"
+    relateds: "relateds { id slug }"
+    tags: "tags { id name }"
+    related_videos: "related_videos { id name }"
