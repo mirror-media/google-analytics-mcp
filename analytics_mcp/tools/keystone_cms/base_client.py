@@ -9,7 +9,7 @@ from .config import CMSProfileConfig
 
 _cached_session_cookies: Dict[str, str] = {}
 _user_perm_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
-ALLOWED_ROLES = {"admin", "moderator", "editor"}
+ALLOWED_ROLES = {"admin", "moderator", "editor", "contributor"}
 CACHE_TTL_SECONDS = 300  # 5 minutes cache for user permission lookups
 
 

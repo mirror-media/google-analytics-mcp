@@ -158,6 +158,15 @@ def generate_cms_tools_for_profile(config: CMSProfileConfig) -> List[Callable[..
     publish_post.__doc__ = f"Publishes a post in {cms_name}."
     tools.append(publish_post)
 
+    # 10. get_my_profile
+    def get_my_profile(user_token: Optional[str] = None) -> Dict[str, Any]:
+        """Gets current authenticated SSO user's CMS profile and role permissions."""
+        return adapter.get_my_profile(user_token=user_token)
+
+    get_my_profile.__name__ = f"{prefix}get_my_profile"
+    get_my_profile.__doc__ = f"Gets current authenticated SSO user's CMS profile and role permissions in {cms_name}."
+    tools.append(get_my_profile)
+
     return tools
 
 

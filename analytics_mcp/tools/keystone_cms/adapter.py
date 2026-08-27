@@ -62,16 +62,25 @@ class KeystoneCMSAdapter:
             raise ValueError("Either slug or post_id must be provided")
 
         client = self._get_client(user_token)
-        where_clause = "{ slug: { equals: $slug } }" if slug else "{ id: { equals: $id } }"
-        variables = {"slug": slug} if slug else {"id": post_id}
-
-        query = f"""
-        query GetPost($slug: String, $id: ID) {{
-            {self.post_list}(where: {where_clause}, take: 1) {{
-                {self._build_post_query(include_rich_text=True)}
+        if slug:
+            query = f"""
+            query GetPostBySlug($slug: String!) {{
+                {self.post_list}(where: {{ slug: {{ equals: $slug }} }}, take: 1) {{
+                    {self._build_post_query(include_rich_text=True)}
+                }}
             }}
-        }}
-        """
+            """
+            variables = {"slug": slug}
+        else:
+            query = f"""
+            query GetPostByID($id: ID!) {{
+                {self.post_list}(where: {{ id: {{ equals: $id }} }}, take: 1) {{
+                    {self._build_post_query(include_rich_text=True)}
+                }}
+            }}
+            """
+            variables = {"id": post_id}
+
         data = client.execute(query, variables)
         posts = data.get(self.post_list, [])
         if not posts:
@@ -260,3 +269,11 @@ class KeystoneCMSAdapter:
     ) -> Dict[str, Any]:
         """Publishes a post by updating state to 'published'."""
         return self.update_post(post_id=post_id, state="published", user_token=user_token)
+
+    def get_my_profile(self, user_token: Optional[str] = None) -> Dict[str, Any]:
+        """Gets current authenticated SSO user's CMS profile and role permissions."""
+        from analytics_mcp.audit import current_user_email
+        email = current_user_email.get() or "anonymous"
+        client = self._get_client(user_token)
+        user_info = client._verify_user_permission(email)
+        return {"user": user_info, "cms_name": self.config.cms_name}
