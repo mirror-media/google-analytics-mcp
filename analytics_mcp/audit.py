@@ -24,6 +24,8 @@ def log_mcp_audit_event(
     target_service: str,
     tool_name: str,
     user_email: Optional[str] = None,
+    user_role: Optional[str] = None,
+    keystone_user_id: Optional[str] = None,
     cms_profile: Optional[str] = None,
     arguments: Optional[Dict[str, Any]] = None,
     graphql_query: Optional[str] = None,
@@ -39,6 +41,8 @@ def log_mcp_audit_event(
         "event": "mcp_audit_log",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "user_email": email,
+        "user_role": user_role or "unknown",
+        "keystone_user_id": keystone_user_id or "unknown",
         "target_service": target_service,  # 'GA4' or 'KeystoneCMS'
         "cms_profile": cms_profile or "n/a",
         "tool_name": tool_name,
