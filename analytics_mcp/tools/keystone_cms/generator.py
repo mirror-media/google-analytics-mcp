@@ -95,9 +95,11 @@ def generate_cms_tools_for_profile(config: CMSProfileConfig) -> List[Callable[..
         category_ids: Optional[List[str]] = None,
         tag_ids: Optional[List[str]] = None,
         writer_ids: Optional[List[str]] = None,
+        related_post_ids: Optional[List[str]] = None,
+        auto_suggest: bool = True,
         user_token: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Creates a new post in Keystone CMS."""
+        """Creates a new post in Keystone CMS. If tag_ids or related_post_ids are omitted and auto_suggest is True, the system will automatically search and attach relevant CMS tags and published related articles."""
         return adapter.create_post(
             title=title,
             slug=slug,
@@ -109,11 +111,13 @@ def generate_cms_tools_for_profile(config: CMSProfileConfig) -> List[Callable[..
             category_ids=category_ids,
             tag_ids=tag_ids,
             writer_ids=writer_ids,
+            related_post_ids=related_post_ids,
+            auto_suggest=auto_suggest,
             user_token=user_token
         )
 
     create_post.__name__ = f"{prefix}create_post"
-    create_post.__doc__ = f"Creates a new post in {cms_name}."
+    create_post.__doc__ = f"Creates a new post in {cms_name} with intelligent tag and related post auto-recommendations."
     tools.append(create_post)
 
     # 8. update_post

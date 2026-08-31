@@ -163,6 +163,75 @@ class KeystoneCMSAdapter:
         """Converts text, Markdown, or HTML content into Keystone 6 Draft.js raw JSON format."""
         return convert_to_draftjs(content, input_type=input_type)
 
+    def _recommend_tags_from_content(self, title: str, content: str, user_token: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Extracts candidate keywords and queries Keystone CMS for matching existing tags."""
+        import re
+        text = f"{title} {content}"
+        cleaned = re.sub(r'[^\w\s\u4e00-\u9fa5]', ' ', text)
+        words = [w.strip() for w in cleaned.split() if len(w.strip()) >= 2]
+        
+        title_clean = re.sub(r'[^\w\u4e00-\u9fa5]', '', title)
+        for i in range(len(title_clean) - 1):
+            chunk = title_clean[i:i+3]
+            if len(chunk) >= 2 and chunk not in words:
+                words.append(chunk)
+
+        stopwords = {"測試", "標題", "發表", "聲明", "今天", "針對", "近期", "爭議", "希望", "事實", "真相"}
+        candidates = [w for w in words if w not in stopwords]
+
+        matched_tags = []
+        seen_tag_ids = set()
+        
+        for term in candidates[:8]:
+            try:
+                res = self.search_tags(query=term, limit=3, user_token=user_token)
+                for tag in res.get("tags", []):
+                    if tag["id"] not in seen_tag_ids:
+                        seen_tag_ids.add(tag["id"])
+                        matched_tags.append(tag)
+                        if len(matched_tags) >= 5:
+                            break
+            except Exception:
+                pass
+            if len(matched_tags) >= 5:
+                break
+                
+        return matched_tags
+
+    def _recommend_related_posts(self, title: str, tag_ids: List[str], current_slug: str, user_token: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Finds top published posts matching tag IDs or title keywords to recommend as related articles."""
+        matched_posts = []
+        seen_post_ids = set()
+        
+        if tag_ids:
+            try:
+                res = self.filter_posts(tag_id=tag_ids[0], limit=5, user_token=user_token)
+                for p in res.get("posts", []):
+                    if p.get("slug") != current_slug and p["id"] not in seen_post_ids:
+                        seen_post_ids.add(p["id"])
+                        matched_posts.append({"id": p["id"], "title": p.get("title", ""), "slug": p.get("slug", "")})
+                        if len(matched_posts) >= 3:
+                            break
+            except Exception:
+                pass
+                
+        if len(matched_posts) < 3 and title:
+            import re
+            title_terms = re.findall(r'[\u4e00-\u9fa5]{2,6}|[a-zA-Z0-9]{3,}', title)
+            if title_terms:
+                try:
+                    res = self.search_posts(query=title_terms[0], limit=5, user_token=user_token)
+                    for p in res.get("posts", []):
+                        if p.get("slug") != current_slug and p["id"] not in seen_post_ids:
+                            seen_post_ids.add(p["id"])
+                            matched_posts.append({"id": p["id"], "title": p.get("title", ""), "slug": p.get("slug", "")})
+                            if len(matched_posts) >= 3:
+                                break
+                except Exception:
+                    pass
+                    
+        return matched_posts
+
     def create_post(
         self,
         title: str,
@@ -175,12 +244,30 @@ class KeystoneCMSAdapter:
         category_ids: Optional[List[str]] = None,
         tag_ids: Optional[List[str]] = None,
         writer_ids: Optional[List[str]] = None,
+        related_post_ids: Optional[List[str]] = None,
+        auto_suggest: bool = True,
         user_token: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Creates a new post in Keystone CMS."""
+        """Creates a new post in Keystone CMS with intelligent tag and related post auto-suggestion."""
         client = self._get_client(user_token)
         draftjs_result = convert_to_draftjs(content, input_type=input_type)
         draftjs_json = draftjs_result["draftjs_json"]
+
+        auto_suggested_info: Dict[str, Any] = {}
+
+        # Auto-suggest tags if omitted
+        if auto_suggest and not tag_ids:
+            suggested_tags = self._recommend_tags_from_content(title, content, user_token=user_token)
+            if suggested_tags:
+                tag_ids = [t["id"] for t in suggested_tags]
+                auto_suggested_info["tags"] = suggested_tags
+
+        # Auto-suggest related posts if omitted
+        if auto_suggest and not related_post_ids:
+            suggested_posts = self._recommend_related_posts(title, tag_ids or [], slug, user_token=user_token)
+            if suggested_posts:
+                related_post_ids = [p["id"] for p in suggested_posts]
+                auto_suggested_info["related_posts"] = suggested_posts
 
         create_data: Dict[str, Any] = {
             "title": title,
@@ -198,6 +285,8 @@ class KeystoneCMSAdapter:
             create_data["tags"] = {"connect": [{"id": tid} for tid in tag_ids]}
         if writer_ids:
             create_data["writers"] = {"connect": [{"id": wid} for wid in writer_ids]}
+        if related_post_ids:
+            create_data["relateds"] = {"connect": [{"id": rid} for rid in related_post_ids]}
 
         gql_query = """
         mutation CreatePost($data: PostCreateInput!) {
@@ -210,7 +299,13 @@ class KeystoneCMSAdapter:
         }
         """
         data = client.execute(gql_query, {"data": create_data})
-        return {"post": data.get("createPost")}
+        created_post = data.get("createPost")
+        
+        response = {"post": created_post}
+        if auto_suggested_info:
+            response["auto_suggested"] = auto_suggested_info
+            response["message"] = "Post created with auto-suggested tags and related posts based on content relevance."
+        return response
 
     def update_post(
         self,
