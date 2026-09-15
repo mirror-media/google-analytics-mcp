@@ -17,9 +17,12 @@
 """Entry point for the Google Analytics & Mirror Media CMS Unified MCP server."""
 
 import asyncio
+import contextlib
 import os
 import sys
 import traceback
+from collections.abc import AsyncIterator
+
 import analytics_mcp.coordinator as coordinator
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
@@ -27,9 +30,12 @@ from mcp.server.models import InitializationOptions
 try:
     import uvicorn
     from mcp.server.sse import SseServerTransport
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.applications import Starlette
-    from starlette.routing import Route
     from starlette.responses import JSONResponse
+    from starlette.routing import Mount, Route
+    from starlette.types import Receive, Scope, Send
+
     HAS_HTTP_DEPS = True
 except ImportError:
     HAS_HTTP_DEPS = False
@@ -41,10 +47,26 @@ async def handle_healthz(request):
 
 if HAS_HTTP_DEPS:
     sse = SseServerTransport("/messages")
+    streamable_http = StreamableHTTPSessionManager(
+        app=coordinator.app,
+        json_response=True,
+        stateless=True,
+    )
+
+    def _request_email_from_scope(scope: Scope) -> str:
+        headers = dict(scope.get("headers", []))
+        return headers.get(b"x-user-email", b"anonymous").decode(
+            "utf-8", errors="replace"
+        )
 
     async def handle_sse(request):
-        email = request.headers.get("x-user-email") or request.headers.get("X-User-Email") or "anonymous"
+        email = (
+            request.headers.get("x-user-email")
+            or request.headers.get("X-User-Email")
+            or "anonymous"
+        )
         from analytics_mcp.audit import current_user_email
+
         current_user_email.set(email)
 
         async with sse.connect_sse(
@@ -64,11 +86,36 @@ if HAS_HTTP_DEPS:
             )
 
     async def handle_messages(request):
-        email = request.headers.get("x-user-email") or request.headers.get("X-User-Email") or "anonymous"
+        email = (
+            request.headers.get("x-user-email")
+            or request.headers.get("X-User-Email")
+            or "anonymous"
+        )
         from analytics_mcp.audit import current_user_email
+
         current_user_email.set(email)
 
-        await sse.handle_post_message(request.scope, request.receive, request._send)
+        await sse.handle_post_message(
+            request.scope, request.receive, request._send
+        )
+
+    async def handle_streamable_http(
+        scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Serve MCP Streamable HTTP while preserving the authenticated user."""
+        from analytics_mcp.audit import current_user_email
+
+        token = current_user_email.set(_request_email_from_scope(scope))
+        try:
+            await streamable_http.handle_request(scope, receive, send)
+        finally:
+            current_user_email.reset(token)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        """Keep the Streamable HTTP session manager alive with the ASGI app."""
+        async with streamable_http.run():
+            yield
 
     starlette_app = Starlette(
         routes=[
@@ -76,16 +123,24 @@ if HAS_HTTP_DEPS:
             Route("/healthz", handle_healthz),
             Route("/sse", endpoint=handle_sse),
             Route("/messages", endpoint=handle_messages, methods=["POST"]),
-        ]
+            Mount("/mcp", app=handle_streamable_http),
+        ],
+        lifespan=lifespan,
     )
 
 
 async def run_server_async():
-    """Runs the MCP server over HTTP SSE (default for Cloud Run) or Stdio (if --stdio flag is passed)."""
+    """Runs MCP over SSE and Streamable HTTP, or Stdio with --stdio."""
     if "--stdio" in sys.argv or not HAS_HTTP_DEPS:
-        print("Starting MCP Stdio Server:", coordinator.app.name, file=sys.stderr)
+        print(
+            "Starting MCP Stdio Server:", coordinator.app.name, file=sys.stderr
+        )
         import mcp.server.stdio
-        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+
+        async with mcp.server.stdio.stdio_server() as (
+            read_stream,
+            write_stream,
+        ):
             await coordinator.app.run(
                 read_stream,
                 write_stream,
@@ -100,8 +155,14 @@ async def run_server_async():
             )
     else:
         port = int(os.getenv("PORT", "8080"))
-        print(f"Starting MCP HTTP SSE Server on port {port}: {coordinator.app.name}", file=sys.stderr)
-        config = uvicorn.Config(starlette_app, host="0.0.0.0", port=port, log_level="info")
+        print(
+            f"Starting MCP HTTP Server on port {port}: {coordinator.app.name} "
+            "(SSE: /sse, Streamable HTTP: /mcp)",
+            file=sys.stderr,
+        )
+        config = uvicorn.Config(
+            starlette_app, host="0.0.0.0", port=port, log_level="info"
+        )
         server = uvicorn.Server(config)
         await server.serve()
 
