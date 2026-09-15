@@ -13,7 +13,7 @@ class HTTPTransportTest(unittest.IsolatedAsyncioTestCase):
             async with httpx.AsyncClient(
                 transport=transport,
                 base_url="http://testserver",
-                follow_redirects=True,
+                follow_redirects=False,
             ) as client:
                 response = await client.post(
                     "/mcp",
@@ -34,6 +34,7 @@ class HTTPTransportTest(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.history, [])
         self.assertEqual(
             response.json()["result"]["serverInfo"]["name"],
             "Google Analytics & Mirror Media CMS Unified MCP Server",

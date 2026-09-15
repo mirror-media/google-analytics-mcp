@@ -33,7 +33,7 @@ try:
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.applications import Starlette
     from starlette.responses import JSONResponse
-    from starlette.routing import Mount, Route
+    from starlette.routing import Route
     from starlette.types import Receive, Scope, Send
 
     HAS_HTTP_DEPS = True
@@ -111,6 +111,14 @@ if HAS_HTTP_DEPS:
         finally:
             current_user_email.reset(token)
 
+    class StreamableHTTPASGIApp:
+        """Expose an exact /mcp route without Starlette's slash redirect."""
+
+        async def __call__(
+            self, scope: Scope, receive: Receive, send: Send
+        ) -> None:
+            await handle_streamable_http(scope, receive, send)
+
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         """Keep the Streamable HTTP session manager alive with the ASGI app."""
@@ -123,7 +131,11 @@ if HAS_HTTP_DEPS:
             Route("/healthz", handle_healthz),
             Route("/sse", endpoint=handle_sse),
             Route("/messages", endpoint=handle_messages, methods=["POST"]),
-            Mount("/mcp", app=handle_streamable_http),
+            Route(
+                "/mcp",
+                endpoint=StreamableHTTPASGIApp(),
+                methods=["GET", "POST", "DELETE"],
+            ),
         ],
         lifespan=lifespan,
     )
