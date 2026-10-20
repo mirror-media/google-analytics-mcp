@@ -197,11 +197,12 @@ async def call_mcp_tool(name: str, arguments: dict) -> list[mcp_types.Content]:
             return [mcp_types.TextContent(type="text", text=response_text)]
 
         except Exception as e:
+            status_code = "FORBIDDEN" if isinstance(e, PermissionError) else "ERROR"
             log_mcp_audit_event(
                 target_service=target_service,
                 tool_name=name,
                 arguments=arguments,
-                status="ERROR",
+                status=status_code,
                 error_message=str(e)
             )
             print(

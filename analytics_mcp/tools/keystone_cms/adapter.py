@@ -3,8 +3,14 @@
 import json
 from typing import Any, Dict, List, Optional
 from .config import CMSProfileConfig
-from .base_client import KeystoneCMSBaseClient
+from .base_client import (
+    KeystoneCMSBaseClient,
+    PUBLISH_ALLOWED_ROLES,
+    UPDATE_ALLOWED_ROLES,
+)
 from .draftjs import convert_to_draftjs
+
+VALID_POST_STATES = {"draft", "published", "scheduled", "invisible", "archived"}
 
 
 class KeystoneCMSAdapter:
@@ -53,7 +59,7 @@ class KeystoneCMSAdapter:
             }}
         }}
         """
-        data = client.execute(query, {"take": limit, "state": state})
+        data = client.execute(query, {"take": limit, "state": state}, action="list_recent_posts")
         return {"posts": data.get(self.post_list, [])}
 
     def get_post(self, slug: Optional[str] = None, post_id: Optional[str] = None, user_token: Optional[str] = None) -> Dict[str, Any]:
@@ -81,7 +87,7 @@ class KeystoneCMSAdapter:
             """
             variables = {"id": post_id}
 
-        data = client.execute(query, variables)
+        data = client.execute(query, variables, action="get_post")
         posts = data.get(self.post_list, [])
         if not posts:
             return {"post": None, "message": f"Post not found ({slug or post_id})"}
@@ -101,7 +107,7 @@ class KeystoneCMSAdapter:
             }}
         }}
         """
-        data = client.execute(gql_query, {"query": query, "take": limit})
+        data = client.execute(gql_query, {"query": query, "take": limit}, action="search_posts")
         return {"posts": data.get(self.post_list, [])}
 
     def filter_posts(
@@ -135,7 +141,7 @@ class KeystoneCMSAdapter:
             }}
         }}
         """
-        data = client.execute(gql_query, {"where": where_conditions, "take": limit})
+        data = client.execute(gql_query, {"where": where_conditions, "take": limit}, action="filter_posts")
         return {"posts": data.get(self.post_list, [])}
 
     def search_tags(self, query: Optional[str] = None, limit: int = 20, user_token: Optional[str] = None) -> Dict[str, Any]:
@@ -152,7 +158,7 @@ class KeystoneCMSAdapter:
             }}
         }}
         """
-        data = client.execute(gql_query, variables)
+        data = client.execute(gql_query, variables, action="search_tags")
         return {"tags": data.get(self.tag_list, [])}
 
     def convert_to_draftjs(
@@ -161,6 +167,8 @@ class KeystoneCMSAdapter:
         input_type: str = "auto"
     ) -> Dict[str, Any]:
         """Converts text, Markdown, or HTML content into Keystone 6 Draft.js raw JSON format."""
+        client = self._get_client()
+        client.check_tool_permission("convert_to_draftjs")
         return convert_to_draftjs(content, input_type=input_type)
 
     def _recommend_tags_from_content(self, title: str, content: str, user_token: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -249,7 +257,14 @@ class KeystoneCMSAdapter:
         user_token: Optional[str] = None
     ) -> Dict[str, Any]:
         """Creates a new post in Keystone CMS with intelligent tag and related post auto-suggestion."""
+        # Input validation
+        if state not in VALID_POST_STATES:
+            raise ValueError(f"Invalid post state '{state}'. Valid states are: {', '.join(sorted(VALID_POST_STATES))}")
+
         client = self._get_client(user_token)
+        # Pre-check permissions before heavy lifting/tag recommendation
+        client.check_tool_permission("create_post", target_state=state)
+
         draftjs_result = convert_to_draftjs(content, input_type=input_type)
         draftjs_json = draftjs_result["draftjs_json"]
 
@@ -298,7 +313,7 @@ class KeystoneCMSAdapter:
             }
         }
         """
-        data = client.execute(gql_query, {"data": create_data})
+        data = client.execute(gql_query, {"data": create_data}, action="create_post", target_state=state)
         created_post = data.get("createPost")
         
         response = {"post": created_post}
@@ -322,7 +337,16 @@ class KeystoneCMSAdapter:
         user_token: Optional[str] = None
     ) -> Dict[str, Any]:
         """Updates an existing post in Keystone CMS."""
+        if not post_id or not str(post_id).strip():
+            raise ValueError("post_id is required")
+
+        if state is not None and state not in VALID_POST_STATES:
+            raise ValueError(f"Invalid post state '{state}'. Valid states are: {', '.join(sorted(VALID_POST_STATES))}")
+
         client = self._get_client(user_token)
+        # Pre-check permissions before DraftJS conversion
+        client.check_tool_permission("update_post", target_state=state)
+
         update_data: Dict[str, Any] = {}
 
         if title is not None:
@@ -354,7 +378,7 @@ class KeystoneCMSAdapter:
             }
         }
         """
-        data = client.execute(gql_query, {"id": post_id, "data": update_data})
+        data = client.execute(gql_query, {"id": post_id, "data": update_data}, action="update_post", target_state=state)
         return {"post": data.get("updatePost")}
 
     def publish_post(
@@ -362,13 +386,27 @@ class KeystoneCMSAdapter:
         post_id: str,
         user_token: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Publishes a post by updating state to 'published'."""
+        """Publishes a post by updating state to 'published'. Restricted strictly to admin and moderator."""
+        if not post_id or not str(post_id).strip():
+            raise ValueError("post_id is required")
+
+        client = self._get_client(user_token)
+        client.check_tool_permission("publish_post", target_state="published")
         return self.update_post(post_id=post_id, state="published", user_token=user_token)
 
     def get_my_profile(self, user_token: Optional[str] = None) -> Dict[str, Any]:
-        """Gets current authenticated SSO user's CMS profile and role permissions."""
-        from analytics_mcp.audit import current_user_email
-        email = current_user_email.get() or "anonymous"
+        """Gets current authenticated SSO user's CMS profile and detailed role permissions."""
         client = self._get_client(user_token)
-        user_info = client._verify_user_permission(email)
-        return {"user": user_info, "cms_name": self.config.cms_name}
+        user_info = client.check_tool_permission("get_my_profile")
+        role = user_info.get("role", "")
+        return {
+            "user": user_info,
+            "cms_name": self.config.cms_name,
+            "permissions": {
+                "role": role,
+                "can_read": True,
+                "can_create_draft": True,
+                "can_update_post": role in UPDATE_ALLOWED_ROLES,
+                "can_publish": role in PUBLISH_ALLOWED_ROLES,
+            }
+        }

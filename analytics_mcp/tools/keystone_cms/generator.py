@@ -117,7 +117,7 @@ def generate_cms_tools_for_profile(config: CMSProfileConfig) -> List[Callable[..
         )
 
     create_post.__name__ = f"{prefix}create_post"
-    create_post.__doc__ = f"Creates a new post in {cms_name} with intelligent tag and related post auto-recommendations."
+    create_post.__doc__ = f"Creates a new post in {cms_name} with intelligent tag and related post auto-recommendations. Note: Authors without publishing permissions can only submit drafts; publishing requires 'admin' or 'moderator'."
     tools.append(create_post)
 
     # 8. update_post
@@ -150,7 +150,7 @@ def generate_cms_tools_for_profile(config: CMSProfileConfig) -> List[Callable[..
         )
 
     update_post.__name__ = f"{prefix}update_post"
-    update_post.__doc__ = f"Updates an existing post in {cms_name}."
+    update_post.__doc__ = f"Updates an existing post in {cms_name}. (Allowed: 'admin', 'moderator', 'editor'. Setting state to 'published' or 'scheduled' requires 'admin' or 'moderator')."
     tools.append(update_post)
 
     # 9. publish_post
@@ -159,7 +159,7 @@ def generate_cms_tools_for_profile(config: CMSProfileConfig) -> List[Callable[..
         return adapter.publish_post(post_id=post_id, user_token=user_token)
 
     publish_post.__name__ = f"{prefix}publish_post"
-    publish_post.__doc__ = f"Publishes a post in {cms_name}."
+    publish_post.__doc__ = f"Publishes a post in {cms_name}. (Security: Restricted strictly to 'admin' and 'moderator' roles; editors and contributors cannot publish)."
     tools.append(publish_post)
 
     # 10. get_my_profile
