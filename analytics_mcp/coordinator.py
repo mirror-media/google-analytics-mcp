@@ -174,7 +174,7 @@ async def list_tools() -> list[mcp_types.Tool]:
 
 @app.call_tool()
 async def call_mcp_tool(name: str, arguments: dict) -> list[mcp_types.Content]:
-    from analytics_mcp.audit import log_mcp_audit_event
+    from analytics_mcp.audit import log_mcp_audit_event, summarize_response
     target_service = "GA4" if not (name.startswith("mm_") or name.startswith("daily_") or name.startswith("readr_")) else "KeystoneCMS"
 
     if name in tool_map:
@@ -184,11 +184,13 @@ async def call_mcp_tool(name: str, arguments: dict) -> list[mcp_types.Content]:
                 args=arguments,
                 tool_context=None,
             )
-            # Log tool call audit event
+            # Log tool call audit event with response summary
+            response_summary = summarize_response(adk_tool_response)
             log_mcp_audit_event(
                 target_service=target_service,
                 tool_name=name,
                 arguments=arguments,
+                response_summary=response_summary,
                 status="SUCCESS"
             )
             # Serialize the ADK tool response to JSON for MCP response

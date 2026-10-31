@@ -271,7 +271,7 @@ class KeystoneCMSBaseClient:
         target_state: Optional[str] = None
     ) -> Dict[str, Any]:
         """Executes a GraphQL query/mutation after checking the user's Keystone permissions and RBAC matrix."""
-        from analytics_mcp.audit import current_user_email, log_mcp_audit_event
+        from analytics_mcp.audit import current_user_email, log_mcp_audit_event, summarize_response
         
         email = current_user_email.get() or "anonymous"
         user_info = None
@@ -286,7 +286,8 @@ class KeystoneCMSBaseClient:
             # Step 2: Execute GraphQL Query/Mutation
             result = self._raw_execute(query, variables)
 
-            # Step 3: Audit Log Success Event
+            # Step 3: Audit Log Success Event with Response Summary
+            response_summary = summarize_response(result)
             log_mcp_audit_event(
                 target_service="KeystoneCMS",
                 tool_name=action or "graphql_execute",
@@ -296,6 +297,7 @@ class KeystoneCMSBaseClient:
                 cms_profile=self.config.cms_name,
                 graphql_query=query,
                 graphql_variables=variables,
+                response_summary=response_summary,
                 status="SUCCESS"
             )
             return result

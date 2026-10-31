@@ -59,15 +59,30 @@ if HAS_HTTP_DEPS:
             "utf-8", errors="replace"
         )
 
+    def _request_ip_from_scope(scope: Scope) -> str:
+        headers = dict(scope.get("headers", []))
+        xff = headers.get(b"x-forwarded-for", b"").decode("utf-8", errors="replace")
+        if xff:
+            return xff.split(",")[0].strip()
+        client = scope.get("client")
+        if client and len(client) > 0:
+            return str(client[0])
+        return "unknown"
+
     async def handle_sse(request):
         email = (
             request.headers.get("x-user-email")
             or request.headers.get("X-User-Email")
             or "anonymous"
         )
-        from analytics_mcp.audit import current_user_email
+        ip = (
+            request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or getattr(request.client, "host", "unknown")
+        )
+        from analytics_mcp.audit import current_user_email, current_client_ip
 
         current_user_email.set(email)
+        current_client_ip.set(ip)
 
         async with sse.connect_sse(
             request.scope, request.receive, request._send
@@ -91,9 +106,14 @@ if HAS_HTTP_DEPS:
             or request.headers.get("X-User-Email")
             or "anonymous"
         )
-        from analytics_mcp.audit import current_user_email
+        ip = (
+            request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or getattr(request.client, "host", "unknown")
+        )
+        from analytics_mcp.audit import current_user_email, current_client_ip
 
         current_user_email.set(email)
+        current_client_ip.set(ip)
 
         await sse.handle_post_message(
             request.scope, request.receive, request._send
@@ -103,13 +123,15 @@ if HAS_HTTP_DEPS:
         scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Serve MCP Streamable HTTP while preserving the authenticated user."""
-        from analytics_mcp.audit import current_user_email
+        from analytics_mcp.audit import current_user_email, current_client_ip
 
-        token = current_user_email.set(_request_email_from_scope(scope))
+        token_email = current_user_email.set(_request_email_from_scope(scope))
+        token_ip = current_client_ip.set(_request_ip_from_scope(scope))
         try:
             await streamable_http.handle_request(scope, receive, send)
         finally:
-            current_user_email.reset(token)
+            current_user_email.reset(token_email)
+            current_client_ip.reset(token_ip)
 
     class StreamableHTTPASGIApp:
         """Expose an exact /mcp route without Starlette's slash redirect."""
