@@ -1,11 +1,12 @@
 """Structured Audit Logger for GA & Keystone CMS MCP Server."""
 
+import contextlib
 import contextvars
 import json
 import logging
 import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Mapping, Optional
 
 # Context variables for holding the current request's user email and client IP
 current_user_email: contextvars.ContextVar[str] = contextvars.ContextVar("current_user_email", default="anonymous")
@@ -19,6 +20,45 @@ if not audit_logger.handlers:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter("%(message)s"))
     audit_logger.addHandler(handler)
+
+
+def request_email_from_scope(scope: Mapping[str, Any]) -> str:
+    headers = dict(scope.get("headers", []))
+    return headers.get(b"x-user-email", b"anonymous").decode(
+        "utf-8", errors="replace"
+    )
+
+
+def request_ip_from_scope(scope: Mapping[str, Any]) -> str:
+    headers = dict(scope.get("headers", []))
+    xff = headers.get(b"x-forwarded-for", b"").decode("utf-8", errors="replace")
+    if xff:
+        return xff.split(",")[0].strip()
+    client = scope.get("client")
+    if client and len(client) > 0:
+        return str(client[0])
+    return "unknown"
+
+
+@contextlib.contextmanager
+def request_identity(scope: Optional[Mapping[str, Any]]) -> Iterator[None]:
+    """Binds user email and client IP from the request carrying an MCP message.
+
+    Over SSE, a tool call arrives in a POST /messages request but runs in the
+    task of the GET /sse connection, so values set by the POST handler are not
+    visible to the tool. Without a request scope (stdio), the current values
+    are kept.
+    """
+    if scope is None:
+        yield
+        return
+    token_email = current_user_email.set(request_email_from_scope(scope))
+    token_ip = current_client_ip.set(request_ip_from_scope(scope))
+    try:
+        yield
+    finally:
+        current_user_email.reset(token_email)
+        current_client_ip.reset(token_ip)
 
 
 def summarize_response(data: Any, max_preview_len: int = 1000) -> Dict[str, Any]:
