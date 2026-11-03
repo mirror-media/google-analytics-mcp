@@ -2,6 +2,7 @@
 
 import contextlib
 import contextvars
+import ipaddress
 import json
 import logging
 import sys
@@ -22,22 +23,37 @@ if not audit_logger.handlers:
     audit_logger.addHandler(handler)
 
 
+def _first_header(scope: Mapping[str, Any], name: bytes) -> Optional[str]:
+    """Returns the first value of a header, as Starlette's Headers.get does."""
+    for key, value in scope.get("headers", []):
+        if key == name:
+            return value.decode("utf-8", errors="replace")
+    return None
+
+
 def request_email_from_scope(scope: Mapping[str, Any]) -> str:
-    headers = dict(scope.get("headers", []))
-    return headers.get(b"x-user-email", b"anonymous").decode(
-        "utf-8", errors="replace"
-    )
+    return _first_header(scope, b"x-user-email") or "anonymous"
 
 
 def request_ip_from_scope(scope: Mapping[str, Any]) -> str:
-    headers = dict(scope.get("headers", []))
-    xff = headers.get(b"x-forwarded-for", b"").decode("utf-8", errors="replace")
+    """Returns the client IP, or "invalid" when the value is not an IP address.
+
+    The gateway proxy replaces X-Forwarded-For with the client IP it derived,
+    so the leftmost entry is that IP. A caller that reaches this service
+    without the proxy can set the header to any value.
+    """
+    xff = _first_header(scope, b"x-forwarded-for")
     if xff:
-        return xff.split(",")[0].strip()
-    client = scope.get("client")
-    if client and len(client) > 0:
-        return str(client[0])
-    return "unknown"
+        candidate = xff.split(",")[0].strip()
+    else:
+        client = scope.get("client")
+        if not client:
+            return "unknown"
+        candidate = str(client[0])
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return "invalid"
 
 
 @contextlib.contextmanager
