@@ -61,8 +61,31 @@ def request_identity(scope: Optional[Mapping[str, Any]]) -> Iterator[None]:
         current_client_ip.reset(token_ip)
 
 
+# Post body fields (Keystone brief/content/summary and Draft.js conversion
+# output) can hold unpublished or member-only text, so they stay out of the
+# preview.
+PREVIEW_EXCLUDED_FIELDS = frozenset(
+    {"brief", "content", "summary", "draftjs_json", "raw_state"}
+)
+
+
+def _without_preview_excluded_fields(data: Any) -> Any:
+    if isinstance(data, dict):
+        return {
+            k: _without_preview_excluded_fields(v)
+            for k, v in data.items()
+            if k not in PREVIEW_EXCLUDED_FIELDS
+        }
+    if isinstance(data, list):
+        return [_without_preview_excluded_fields(v) for v in data]
+    return data
+
+
 def summarize_response(data: Any, max_preview_len: int = 1000) -> Dict[str, Any]:
-    """Generates an informative, security-safe summary of tool or GraphQL response for audit logging."""
+    """Generates a summary of a tool or GraphQL response for audit logging.
+
+    The preview omits PREVIEW_EXCLUDED_FIELDS at any depth.
+    """
     if data is None:
         return {"type": "none", "summary": "Empty response"}
 
@@ -93,7 +116,11 @@ def summarize_response(data: Any, max_preview_len: int = 1000) -> Dict[str, Any]
         else:
             summary["type"] = type(data).__name__
 
-        raw_repr = json.dumps(data, ensure_ascii=False, default=str)
+        raw_repr = json.dumps(
+            _without_preview_excluded_fields(data),
+            ensure_ascii=False,
+            default=str,
+        )
         if len(raw_repr) > max_preview_len:
             summary["preview"] = raw_repr[:max_preview_len] + "... [truncated]"
         else:
