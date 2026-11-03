@@ -54,19 +54,15 @@ if HAS_HTTP_DEPS:
     )
 
     async def handle_sse(request):
-        email = (
-            request.headers.get("x-user-email")
-            or request.headers.get("X-User-Email")
-            or "anonymous"
+        from analytics_mcp.audit import (
+            current_user_email,
+            current_client_ip,
+            request_email_from_scope,
+            request_ip_from_scope,
         )
-        ip = (
-            request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-            or getattr(request.client, "host", "unknown")
-        )
-        from analytics_mcp.audit import current_user_email, current_client_ip
 
-        current_user_email.set(email)
-        current_client_ip.set(ip)
+        current_user_email.set(request_email_from_scope(request.scope))
+        current_client_ip.set(request_ip_from_scope(request.scope))
 
         async with sse.connect_sse(
             request.scope, request.receive, request._send

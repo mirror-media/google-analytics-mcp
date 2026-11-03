@@ -3,7 +3,11 @@
 import json
 import unittest
 
-from analytics_mcp.audit import summarize_response
+from analytics_mcp.audit import (
+    request_email_from_scope,
+    request_ip_from_scope,
+    summarize_response,
+)
 
 BODY_TEXT = "body text that must not be logged"
 
@@ -67,6 +71,51 @@ class SummarizeResponseTest(unittest.TestCase):
 
         self.assertEqual(json.loads(summary["preview"]), data)
         self.assertEqual(summary["sample_identifiers"], ["accountSummaries/1"])
+
+
+def _scope(*headers, client=("192.0.2.1", 1234)):
+    return {
+        "type": "http",
+        "headers": [(k.encode(), v.encode()) for k, v in headers],
+        "client": client,
+    }
+
+
+class RequestIdentityFromScopeTest(unittest.TestCase):
+    def test_ip_is_leftmost_forwarded_for_entry(self):
+        scope = _scope(
+            ("x-forwarded-for", "203.0.113.9, 192.0.2.50, 192.0.2.60")
+        )
+        self.assertEqual(request_ip_from_scope(scope), "203.0.113.9")
+
+    def test_ip_uses_first_header_line(self):
+        scope = _scope(
+            ("x-forwarded-for", "203.0.113.9"),
+            ("x-forwarded-for", "198.51.100.7"),
+        )
+        self.assertEqual(request_ip_from_scope(scope), "203.0.113.9")
+
+    def test_ip_that_is_not_an_address_is_invalid(self):
+        for value in ("not-an-ip", "203.0.113.9 extra", ", 203.0.113.9"):
+            with self.subTest(value=value):
+                scope = _scope(("x-forwarded-for", value))
+                self.assertEqual(request_ip_from_scope(scope), "invalid")
+
+    def test_ip_is_normalized(self):
+        scope = _scope(("x-forwarded-for", "2001:DB8::1"))
+        self.assertEqual(request_ip_from_scope(scope), "2001:db8::1")
+
+    def test_ip_falls_back_to_connection_address(self):
+        self.assertEqual(request_ip_from_scope(_scope()), "192.0.2.1")
+        self.assertEqual(request_ip_from_scope(_scope(client=None)), "unknown")
+
+    def test_email_uses_first_header_line(self):
+        scope = _scope(
+            ("x-user-email", "a@example.test"),
+            ("x-user-email", "b@example.test"),
+        )
+        self.assertEqual(request_email_from_scope(scope), "a@example.test")
+        self.assertEqual(request_email_from_scope(_scope()), "anonymous")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from unittest.mock import patch
 import httpx
 
 import analytics_mcp.coordinator as coordinator
+import analytics_mcp.server as server
 from analytics_mcp.audit import current_client_ip, current_user_email
 from analytics_mcp.server import HAS_HTTP_DEPS, starlette_app
 
@@ -159,6 +160,71 @@ class SSEAuditIdentityTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[0]["tool_name"], FAKE_TOOL)
         self.assertEqual(events[0]["client_ip"], "203.0.113.2")
         self.assertEqual(events[0]["user_email"], "b@example.test")
+
+    async def test_tool_call_audit_reads_first_header_line_and_validates_ip(
+        self,
+    ):
+        cases = [
+            (
+                [
+                    ("X-User-Email", "b@example.test"),
+                    ("X-User-Email", "c@example.test"),
+                    ("X-Forwarded-For", "203.0.113.2"),
+                    ("X-Forwarded-For", "198.51.100.7"),
+                ],
+                "203.0.113.2",
+                "b@example.test",
+            ),
+            (
+                [
+                    ("X-User-Email", "b@example.test"),
+                    ("X-Forwarded-For", "not-an-ip"),
+                ],
+                "invalid",
+                "b@example.test",
+            ),
+        ]
+        for post_headers, want_ip, want_email in cases:
+            with self.subTest(post_headers=post_headers):
+                with patch.dict(coordinator.tool_map, {FAKE_TOOL: FakeTool()}):
+                    with self.assertLogs("mcp_audit", level="INFO") as logs:
+                        await asyncio.wait_for(
+                            self._call_tool_over_sse({}, post_headers), 10
+                        )
+                events = _audit_events(logs)
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0]["client_ip"], want_ip)
+                self.assertEqual(events[0]["user_email"], want_email)
+
+
+@unittest.skipUnless(HAS_HTTP_DEPS, "HTTP MCP dependencies are not installed")
+class StreamableHTTPIdentityTest(unittest.IsolatedAsyncioTestCase):
+    async def test_binds_identity_from_first_header_line(self):
+        seen = {}
+
+        async def fake_handle_request(scope, receive, send):
+            seen["client_ip"] = current_client_ip.get()
+            seen["user_email"] = current_user_email.get()
+
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"x-user-email", b"b@example.test"),
+                (b"x-user-email", b"c@example.test"),
+                (b"x-forwarded-for", b"203.0.113.2"),
+                (b"x-forwarded-for", b"198.51.100.7"),
+            ],
+            "client": ("192.0.2.1", 1234),
+        }
+        with patch.object(
+            server.streamable_http, "handle_request", fake_handle_request
+        ):
+            await server.handle_streamable_http(scope, None, None)
+
+        self.assertEqual(
+            seen,
+            {"client_ip": "203.0.113.2", "user_email": "b@example.test"},
+        )
 
 
 class CallToolWithoutRequestTest(unittest.IsolatedAsyncioTestCase):
